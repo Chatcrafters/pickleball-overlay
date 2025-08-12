@@ -344,9 +344,25 @@
         // ============= SCORE UPDATES (via PubSub) =============
         function setupScoreUpdates() {
             if (!meeting) return;
-
-            const pubsub = meeting.pubSub;
             
+            debug('Setting up PubSub for score updates...');
+            
+            // Subscribe to score updates
+            meeting.pubSub.subscribe("SCORE_UPDATE", (data) => {
+                debug("📊 Score Update empfangen: " + JSON.stringify(data));
+                if (data) {
+                    updateScore(data);
+                }
+            });
+            
+            // Get last persisted score (falls Stream neu startet)
+            const messages = meeting.pubSub.getMessages("SCORE_UPDATE");
+            if (messages && messages.length > 0) {
+                const lastScore = messages[messages.length - 1];
+                debug("📊 Letzter Score geladen: " + JSON.stringify(lastScore));
+                updateScore(lastScore.message);
+            }
+        }            
             // Subscribe to score updates
             pubsub.subscribe("SCORE_UPDATE", (data) => {
                 debug("Score Update: " + JSON.stringify(data));
@@ -409,4 +425,5 @@
         });
     </script>
 </body>
+
 </html>
