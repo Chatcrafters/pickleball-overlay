@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pickleball Live Stream Template</title>
+    
+    <!-- VideoSDK -->
+    <script src="https://sdk.videosdk.live/js-sdk/0.1.6/videosdk.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #000;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Video Container für Teilnehmer */
+        #video-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: #000;
+        }
+
+        .participant-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Score Overlay - IMMER SICHTBAR */
+        .score-overlay {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.7) 100%);
+            padding: 25px 60px;
+            border-radius: 20px;
+            display: flex;
+            gap: 50px;
+            align-items: center;
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(255,255,255,0.1);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+
+        .team-score {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            min-width: 150px;
+        }
+
+        .team-name {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #ffffff;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .score {
+            font-size: 72px;
+            font-weight: bold;
+            color: #ffffff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .serving {
+            color: #ffeb3b !important;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { 
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% { 
+                opacity: 0.8;
+                transform: scale(1.05);
+            }
+        }
+
+        .vs {
+            font-size: 36px;
+            color: rgba(255,255,255,0.5);
+            font-weight: bold;
+            margin: 0 30px;
+        }
+
+        /* Top Bar Info */
+        .top-bar {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 15px 40px;
+            border-radius: 15px;
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            color: white;
+        }
+
+        .match-info {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .live-indicator {
+            background: #f44336;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Logo/Branding */
+        .logo {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            width: 150px;
+            height: auto;
+            opacity: 0.9;
+        }
+
+        /* Debug Info */
+        .debug {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #0f0;
+            font-family: monospace;
+            font-size: 12px;
+            background: rgba(0,0,0,0.8);
+            padding: 5px;
+            display: none;
+        }
+
+        .debug.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Debug Info -->
+    <div id="debug" class="debug"></div>
+
+    <!-- Video Container -->
+    <div id="video-container"></div>
+
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <div class="live-indicator">● LIVE</div>
+        <div class="match-info">Pickleball Championship 2025</div>
+    </div>
+
+    <!-- Score Overlay -->
+    <div class="score-overlay">
+        <div class="team-score">
+            <div class="team-name" id="teamAName">Team A</div>
+            <div class="score" id="scoreA">0</div>
+        </div>
+        <div class="vs">VS</div>
+        <div class="team-score">
+            <div class="team-name" id="teamBName">Team B</div>
+            <div class="score" id="scoreB">0</div>
+        </div>
+    </div>
+
+    <script>
+        // ============= URL PARAMETERS =============
+        function getUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return {
+                meetingId: urlParams.get('meetingId'),
+                token: urlParams.get('token'),
+                participantId: urlParams.get('participantId'),
+                // Custom parameters für Score
+                teamA: urlParams.get('teamA') || 'Team A',
+                teamB: urlParams.get('teamB') || 'Team B',
+                scoreA: urlParams.get('scoreA') || '0',
+                scoreB: urlParams.get('scoreB') || '0',
+                server: urlParams.get('server') || 'A'
+            };
+        }
+
+        // ============= INITIALIZATION =============
+        let meeting = null;
+        const params = getUrlParams();
+        
+        // Debug
+        function debug(msg) {
+            console.log(msg);
+            const debugEl = document.getElementById('debug');
+            debugEl.innerHTML += msg + '<br>';
+        }
+
+        debug('Template geladen!');
+        debug('Meeting ID: ' + params.meetingId);
+
+        // Score initial setzen
+        document.getElementById('teamAName').textContent = params.teamA;
+        document.getElementById('teamBName').textContent = params.teamB;
+        document.getElementById('scoreA').textContent = params.scoreA;
+        document.getElementById('scoreB').textContent = params.scoreB;
+
+        // Serving indicator
+        if (params.server === 'A') {
+            document.getElementById('teamAName').classList.add('serving');
+        } else {
+            document.getElementById('teamBName').classList.add('serving');
+        }
+
+        // ============= VIDEOSDK INITIALIZATION =============
+        async function initMeeting() {
+            if (!params.meetingId || !params.token || !params.participantId) {
+                debug('❌ Fehlende Parameter!');
+                return;
+            }
+
+            debug('Initialisiere VideoSDK...');
+
+            try {
+                window.VideoSDK.config(params.token);
+
+                meeting = window.VideoSDK.initMeeting({
+                    meetingId: params.meetingId,
+                    participantId: params.participantId,
+                    name: "Stream Template",
+                    micEnabled: false,
+                    webcamEnabled: false
+                });
+
+                // Event Listeners
+                meeting.on("meeting-joined", () => {
+                    debug("✅ Meeting joined!");
+                    handleParticipants();
+                });
+
+                meeting.on("participant-joined", (participant) => {
+                    debug("Participant joined: " + participant.displayName);
+                    if (!participant.isLocal) {
+                        setupParticipantVideo(participant);
+                    }
+                });
+
+                meeting.on("participant-left", (participant) => {
+                    debug("Participant left: " + participant.displayName);
+                    removeParticipantVideo(participant.id);
+                });
+
+                // Join Meeting automatisch
+                await meeting.join();
+                debug("Joining meeting...");
+
+            } catch (error) {
+                debug('❌ Error: ' + error.message);
+            }
+        }
+
+        // ============= VIDEO HANDLING =============
+        function handleParticipants() {
+            const participants = meeting.participants;
+            participants.forEach((participant) => {
+                if (!participant.isLocal) {
+                    setupParticipantVideo(participant);
+                }
+            });
+        }
+
+        function setupParticipantVideo(participant) {
+            debug('Setup video for: ' + participant.displayName);
+
+            const videoContainer = document.getElementById('video-container');
+            
+            // Create video element
+            const videoElement = document.createElement('video');
+            videoElement.id = `video-${participant.id}`;
+            videoElement.className = 'participant-video';
+            videoElement.autoplay = true;
+            videoElement.muted = true;
+            videoElement.playsInline = true;
+
+            participant.on("stream-enabled", (stream) => {
+                debug('Stream enabled: ' + stream.kind);
+                if (stream.kind === 'video') {
+                    const track = stream.track;
+                    const mediaStream = new MediaStream([track]);
+                    videoElement.srcObject = mediaStream;
+                    videoElement.play().catch(e => debug('Play error: ' + e));
+                }
+            });
+
+            participant.on("stream-disabled", (stream) => {
+                debug('Stream disabled: ' + stream.kind);
+                if (stream.kind === 'video') {
+                    videoElement.srcObject = null;
+                }
+            });
+
+            // Add video to container
+            videoContainer.innerHTML = ''; // Clear previous videos
+            videoContainer.appendChild(videoElement);
+
+            // Enable video if already streaming
+            const videoStream = participant.streams.get('video');
+            if (videoStream && videoStream.track) {
+                const mediaStream = new MediaStream([videoStream.track]);
+                videoElement.srcObject = mediaStream;
+                videoElement.play().catch(e => debug('Play error: ' + e));
+            }
+        }
+
+        function removeParticipantVideo(participantId) {
+            const videoElement = document.getElementById(`video-${participantId}`);
+            if (videoElement) {
+                videoElement.remove();
+            }
+        }
+
+        // ============= SCORE UPDATES (via PubSub) =============
+        function setupScoreUpdates() {
+            if (!meeting) return;
+
+            const pubsub = meeting.pubSub;
+            
+            // Subscribe to score updates
+            pubsub.subscribe("SCORE_UPDATE", (data) => {
+                debug("Score Update: " + JSON.stringify(data));
+                if (data) {
+                    updateScore(data);
+                }
+            });
+        }
+
+        function updateScore(data) {
+            if (data.scoreA !== undefined) {
+                document.getElementById('scoreA').textContent = data.scoreA;
+            }
+            if (data.scoreB !== undefined) {
+                document.getElementById('scoreB').textContent = data.scoreB;
+            }
+            if (data.teamA) {
+                document.getElementById('teamAName').textContent = data.teamA;
+            }
+            if (data.teamB) {
+                document.getElementById('teamBName').textContent = data.teamB;
+            }
+            if (data.server) {
+                document.getElementById('teamAName').classList.toggle('serving', data.server === 'A');
+                document.getElementById('teamBName').classList.toggle('serving', data.server === 'B');
+            }
+        }
+
+        // ============= POLLING FOR UPDATES (Alternative) =============
+        // Falls URL Parameters sich ändern (für Tests)
+        function pollForUpdates() {
+            setInterval(async () => {
+                // Hier könntest du einen API Call machen um aktuelle Scores zu holen
+                // Oder localStorage/sessionStorage nutzen für lokale Tests
+                const stored = localStorage.getItem('pickleballScore');
+                if (stored) {
+                    try {
+                        const data = JSON.parse(stored);
+                        updateScore(data);
+                    } catch (e) {
+                        // Ignore
+                    }
+                }
+            }, 1000);
+        }
+
+        // ============= START =============
+        window.addEventListener('load', () => {
+            debug('Window loaded, starting...');
+            initMeeting();
+            setupScoreUpdates();
+            pollForUpdates();
+        });
+
+        // Debug Mode Toggle
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'd' && e.ctrlKey) {
+                document.getElementById('debug').classList.toggle('active');
+            }
+        });
+    </script>
+</body>
+</html>
