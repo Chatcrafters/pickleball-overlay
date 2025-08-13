@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pickleball Live Stream Template</title>
+    <title>Pickleball Live Stream Overlay</title>
     
     <!-- VideoSDK -->
     <script src="https://sdk.videosdk.live/js-sdk/0.1.6/videosdk.js"></script>
@@ -136,16 +136,6 @@
             50% { opacity: 0.7; }
         }
 
-        /* Logo/Branding */
-        .logo {
-            position: absolute;
-            top: 30px;
-            right: 30px;
-            width: 150px;
-            height: auto;
-            opacity: 0.9;
-        }
-
         /* Debug Info */
         .debug {
             position: absolute;
@@ -157,6 +147,9 @@
             background: rgba(0,0,0,0.8);
             padding: 5px;
             display: none;
+            max-width: 400px;
+            max-height: 200px;
+            overflow-y: auto;
         }
 
         .debug.active {
@@ -195,9 +188,9 @@
         function getUrlParams() {
             const urlParams = new URLSearchParams(window.location.search);
             return {
-                meetingId: urlParams.get('meetingId'),
-                token: urlParams.get('token'),
-                participantId: urlParams.get('participantId'),
+                meetingId: urlParams.get('meetingId') || urlParams.get('sessionId'),
+                token: urlParams.get('token') || urlParams.get('authToken'),
+                participantId: urlParams.get('participantId') || 'template-' + Date.now(),
                 // Custom parameters für Score
                 teamA: urlParams.get('teamA') || 'Team A',
                 teamB: urlParams.get('teamB') || 'Team B',
@@ -213,13 +206,22 @@
         
         // Debug
         function debug(msg) {
-            console.log(msg);
+            console.log('[TEMPLATE]', msg);
             const debugEl = document.getElementById('debug');
-            debugEl.innerHTML += msg + '<br>';
+            if (debugEl) {
+                const timestamp = new Date().toLocaleTimeString();
+                debugEl.innerHTML = `[${timestamp}] ${msg}<br>` + debugEl.innerHTML;
+                // Limit to last 10 messages
+                const lines = debugEl.innerHTML.split('<br>');
+                if (lines.length > 10) {
+                    debugEl.innerHTML = lines.slice(0, 10).join('<br>');
+                }
+            }
         }
 
-        debug('Template geladen!');
+        debug('🎾 Pickleball Overlay Template geladen!');
         debug('Meeting ID: ' + params.meetingId);
+        debug('Token: ' + (params.token ? 'Vorhanden' : 'FEHLT!'));
 
         // Score initial setzen
         document.getElementById('teamAName').textContent = params.teamA;
@@ -236,12 +238,16 @@
 
         // ============= VIDEOSDK INITIALIZATION =============
         async function initMeeting() {
-            if (!params.meetingId || !params.token || !params.participantId) {
-                debug('❌ Fehlende Parameter!');
+            // VideoSDK fügt automatisch Token und Meeting ID hinzu
+            // Wenn nicht, nutze URL Parameter
+            if (!params.meetingId || !params.token) {
+                debug('⚠️ Warte auf VideoSDK Parameter...');
+                // VideoSDK injiziert diese automatisch bei Custom Template
+                setTimeout(initMeeting, 1000);
                 return;
             }
 
-            debug('Initialisiere VideoSDK...');
+            debug('🚀 Initialisiere VideoSDK...');
 
             try {
                 window.VideoSDK.config(params.token);
@@ -249,7 +255,7 @@
                 meeting = window.VideoSDK.initMeeting({
                     meetingId: params.meetingId,
                     participantId: params.participantId,
-                    name: "Stream Template",
+                    name: "Stream Overlay",
                     micEnabled: false,
                     webcamEnabled: false
                 });
@@ -258,32 +264,41 @@
                 meeting.on("meeting-joined", () => {
                     debug("✅ Meeting joined!");
                     handleParticipants();
+                    setupScoreUpdates();
                 });
 
                 meeting.on("participant-joined", (participant) => {
-                    debug("Participant joined: " + participant.displayName);
+                    debug("👤 Participant joined: " + participant.displayName);
                     if (!participant.isLocal) {
                         setupParticipantVideo(participant);
                     }
                 });
 
                 meeting.on("participant-left", (participant) => {
-                    debug("Participant left: " + participant.displayName);
+                    debug("👤 Participant left: " + participant.displayName);
                     removeParticipantVideo(participant.id);
                 });
 
-                // Join Meeting automatisch
+                meeting.on("error", (error) => {
+                    debug("❌ Meeting error: " + error.message);
+                });
+
+                // Join Meeting
                 await meeting.join();
-                debug("Joining meeting...");
+                debug("🔄 Joining meeting...");
 
             } catch (error) {
                 debug('❌ Error: ' + error.message);
+                // Retry nach 3 Sekunden
+                setTimeout(initMeeting, 3000);
             }
         }
 
         // ============= VIDEO HANDLING =============
         function handleParticipants() {
             const participants = meeting.participants;
+            debug(`👥 ${participants.size} Teilnehmer im Meeting`);
+            
             participants.forEach((participant) => {
                 if (!participant.isLocal) {
                     setupParticipantVideo(participant);
@@ -292,7 +307,7 @@
         }
 
         function setupParticipantVideo(participant) {
-            debug('Setup video for: ' + participant.displayName);
+            debug('📹 Setup video for: ' + participant.displayName);
 
             const videoContainer = document.getElementById('video-container');
             
@@ -305,7 +320,7 @@
             videoElement.playsInline = true;
 
             participant.on("stream-enabled", (stream) => {
-                debug('Stream enabled: ' + stream.kind);
+                debug('🎥 Stream enabled: ' + stream.kind);
                 if (stream.kind === 'video') {
                     const track = stream.track;
                     const mediaStream = new MediaStream([track]);
@@ -315,7 +330,7 @@
             });
 
             participant.on("stream-disabled", (stream) => {
-                debug('Stream disabled: ' + stream.kind);
+                debug('🎥 Stream disabled: ' + stream.kind);
                 if (stream.kind === 'video') {
                     videoElement.srcObject = null;
                 }
@@ -345,34 +360,36 @@
         function setupScoreUpdates() {
             if (!meeting) return;
             
-            debug('Setting up PubSub for score updates...');
+            debug('📡 Setting up PubSub for score updates...');
             
-            // Subscribe to score updates
-            meeting.pubSub.subscribe("SCORE_UPDATE", (data) => {
-                debug("📊 Score Update empfangen: " + JSON.stringify(data));
-                if (data) {
-                    updateScore(data);
-                }
-            });
+            const pubsub = meeting.pubSub;
             
-            // Get last persisted score (falls Stream neu startet)
-            const messages = meeting.pubSub.getMessages("SCORE_UPDATE");
-            if (messages && messages.length > 0) {
-                const lastScore = messages[messages.length - 1];
-                debug("📊 Letzter Score geladen: " + JSON.stringify(lastScore));
-                updateScore(lastScore.message);
-            }
-        }            
             // Subscribe to score updates
             pubsub.subscribe("SCORE_UPDATE", (data) => {
-                debug("Score Update: " + JSON.stringify(data));
-                if (data) {
-                    updateScore(data);
+                debug("📊 Score Update empfangen!");
+                if (data && data.message) {
+                    updateScore(data.message);
                 }
             });
+            
+            // Get last persisted score
+            try {
+                const messages = pubsub.getMessages("SCORE_UPDATE");
+                if (messages && messages.length > 0) {
+                    const lastScore = messages[messages.length - 1];
+                    debug("📊 Letzter Score geladen");
+                    if (lastScore && lastScore.message) {
+                        updateScore(lastScore.message);
+                    }
+                }
+            } catch (e) {
+                debug("Keine gespeicherten Scores");
+            }
         }
 
         function updateScore(data) {
+            debug("🔄 Updating score: " + JSON.stringify(data));
+            
             if (data.scoreA !== undefined) {
                 document.getElementById('scoreA').textContent = data.scoreA;
             }
@@ -391,12 +408,10 @@
             }
         }
 
-        // ============= POLLING FOR UPDATES (Alternative) =============
-        // Falls URL Parameters sich ändern (für Tests)
+        // ============= POLLING FOR UPDATES (Backup) =============
         function pollForUpdates() {
             setInterval(async () => {
-                // Hier könntest du einen API Call machen um aktuelle Scores zu holen
-                // Oder localStorage/sessionStorage nutzen für lokale Tests
+                // Nur als Backup, falls PubSub nicht funktioniert
                 const stored = localStorage.getItem('pickleballScore');
                 if (stored) {
                     try {
@@ -406,14 +421,13 @@
                         // Ignore
                     }
                 }
-            }, 1000);
+            }, 2000);
         }
 
         // ============= START =============
         window.addEventListener('load', () => {
-            debug('Window loaded, starting...');
+            debug('🏁 Window loaded, starting...');
             initMeeting();
-            setupScoreUpdates();
             pollForUpdates();
         });
 
@@ -425,5 +439,4 @@
         });
     </script>
 </body>
-
 </html>
